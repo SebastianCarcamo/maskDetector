@@ -20,43 +20,41 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
 mainPath = "./files/"
-# initialize the initial learning rate, number of epochs to train for,
-# and batch size
+# Hiperparametros
 INIT_LR = 1e-4
 EPOCHS = 20
-BS = 32
+BATCH = 32
 
-print("[INFO] loading images...")
-imagePaths = list(paths.list_images(mainPath + "dataset"))
 data = []
 labels = []
 
+imagePaths = list(paths.list_images(mainPath + "dataset"))
+
+# Para cada imagen
 for imagePath in imagePaths:
-    # extract the class label from the filename
+    # extraemos los labels de los nombres de los folders
     label = imagePath.split(os.path.sep)[-2]
 
-    # load the input image (224x224) and preprocess it
+    # cargado de la imagen
     image = load_img(imagePath, target_size=(224, 224))
     image = img_to_array(image)
     image = preprocess_input(image)
 
-    # update the data and labels lists, respectively
     data.append(image)
     labels.append(label)
+    # vamos llenando data y labels con la informacion correspondiente
 
-# convert the data and labels to NumPy arrays
 data = np.array(data, dtype="float32")
 labels = np.array(labels)
 
-# perform one-hot encoding on the labels
+# onehot encoding
 lb = LabelBinarizer()
 labels = lb.fit_transform(labels)
 labels = to_categorical(labels)
 
-# partition the data into training and testing splits using 75% of the data for training and the remaining 25% for testing
-(trainX, testX, trainY, testY) = train_test_split(data, labels, test_size=0.20, stratify=labels, random_state=42)
+(trainX, testX, trainY, testY) = train_test_split(data, labels, test_size=0.2, stratify=labels) # separamos la data 80/20 para train/test
 
-# construct the training image generator for data augmentation
+# generador de data augmentation
 aug = ImageDataGenerator(
     rotation_range=20,
     zoom_range=0.15,
@@ -66,10 +64,8 @@ aug = ImageDataGenerator(
     horizontal_flip=True,
     fill_mode="nearest")
 
-# load the MobileNetV2 network, ensuring the head FC layer sets are left off
 baseModel = MobileNetV2(weights="imagenet", include_top=False, input_tensor=Input(shape=(224, 224, 3)))
 
-# construct the head of the model that will be placed on top of the the base model
 headModel = baseModel.output
 headModel = AveragePooling2D(pool_size=(7, 7))(headModel)
 headModel = Flatten(name="flatten")(headModel)
@@ -77,27 +73,20 @@ headModel = Dense(128, activation="relu")(headModel)
 headModel = Dropout(0.5)(headModel)
 headModel = Dense(2, activation="softmax")(headModel)
 
-# place the head FC model on top of the base model (this will become the actual model we will train)
 model = Model(inputs=baseModel.input, outputs=headModel)
 
-# loop over all layers in the base model and freeze them so they will NOT be updated during the first training process
 for layer in baseModel.layers:
     layer.trainable = False
 
-# compile our model
-print("[INFO] compiling model...")
 opt = Adam(lr=INIT_LR, decay=INIT_LR / EPOCHS)
 model.compile(loss="binary_crossentropy", optimizer=opt, metrics=["accuracy"])
 
-# train the head of the network
-print("[INFO] training head...")
-H = model.fit(
-  aug.flow(trainX, trainY, batch_size=BS),
-  steps_per_epoch=len(trainX) // BS,
+# entrenamiento del modelo
+model.fit(aug.flow(trainX, trainY, batch_size=BATCH),
+  steps_per_epoch=len(trainX) // BATCH,
   validation_data=(testX, testY),
-  validation_steps=len(testX) // BS,
+  validation_steps=len(testX) // BATCH,
   epochs=EPOCHS)
 
-# serialize the model to disk
-print("[INFO] saving mask detector model...")
+# guardar el modelo para no tener que hacer el proceso mas de 1 vez
 model.save(mainPath + "model", save_format="h5")
